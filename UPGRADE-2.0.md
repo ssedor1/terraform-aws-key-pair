@@ -247,3 +247,103 @@ resource "azurerm_role_assignment" "loose_file_move_pod_blob" {
   role_definition_name = "Storage Blob Data Contributor"
   principal_id         = azurerm_windows_function_app.loose_file_move[0].identity[0].principal_id
 }
+
+
+##############################################
+# LOOSE FILE MOVE FUNCTION APP
+##############################################
+
+variable "loose_file_move_enabled" {
+  description = "Deploy the LooseFileMove Function app and its supporting resources in this stack."
+  type        = bool
+  default     = false
+}
+
+variable "loose_file_move_version" {
+  description = "Version of the LooseFileMove package to deploy. Resolves to packages/loosefilemove-<version>.zip. Change this value for every release; replacing a zip with the same name does not trigger a redeploy."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.loose_file_move_version == null || can(regex("^[0-9A-Za-z._-]+$", var.loose_file_move_version))
+    error_message = "loose_file_move_version may only contain letters, numbers, dots, underscores, and hyphens."
+  }
+}
+
+variable "function_service_plan_sku" {
+  description = "SKU for the Windows App Service plan hosting the Function app."
+  type        = string
+  default     = "P0v3"
+
+  validation {
+    condition     = can(regex("^(B[1-3]|S[1-3]|P[1-3]v2|P[0-3]v3|P[1-5]mv3)$", var.function_service_plan_sku))
+    error_message = "function_service_plan_sku must be a Basic, Standard, Premium v2, or Premium v3 SKU (for example B1, S1, P0v3, P1v3)."
+  }
+}
+
+variable "function_dotnet_version" {
+  description = "The .NET version for the Function app's application stack. Use v10.0 once the code is upgraded; .NET 8 reaches end of support on November 10, 2026."
+  type        = string
+  default     = "v8.0"
+
+  validation {
+    condition     = contains(["v8.0", "v9.0", "v10.0"], var.function_dotnet_version)
+    error_message = "function_dotnet_version must be one of: v8.0, v9.0, v10.0."
+  }
+}
+
+variable "function_use_isolated_runtime" {
+  description = "Set to true if the function code uses the .NET isolated worker model, false for the in-process model."
+  type        = bool
+  default     = true
+}
+
+variable "function_integration_subnet_id" {
+  description = "Resource ID of the subnet for the Function app's regional VNet integration. Must be delegated to Microsoft.Web/serverFarms (/28 minimum)."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.function_integration_subnet_id == null || can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.Network/virtualNetworks/[^/]+/subnets/[^/]+$", var.function_integration_subnet_id))
+    error_message = "function_integration_subnet_id must be a full subnet resource ID."
+  }
+}
+
+variable "private_endpoint_subnet_id" {
+  description = "Resource ID of the subnet for the Function runtime storage account's private endpoints."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.private_endpoint_subnet_id == null || can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.Network/virtualNetworks/[^/]+/subnets/[^/]+$", var.private_endpoint_subnet_id))
+    error_message = "private_endpoint_subnet_id must be a full subnet resource ID."
+  }
+}
+
+variable "private_dns_zone_ids" {
+  description = "Private DNS zone resource IDs for the runtime storage private endpoints, keyed by subresource (blob, queue, table). Leave empty if DNS records are created by Azure Policy."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition     = alltrue([for k in keys(var.private_dns_zone_ids) : contains(["blob", "queue", "table"], k)])
+    error_message = "private_dns_zone_ids keys must be blob, queue, or table."
+  }
+}
+
+variable "log_analytics_workspace_id" {
+  description = "Resource ID of the Log Analytics workspace that backs the Function app's Application Insights."
+  type        = string
+  default     = null
+}
+
+variable "function_runtime_storage_allowed_ip_rules" {
+  description = "Public IPs or CIDR ranges allowed through the runtime storage account firewall, for example Spacelift worker egress IPs. Enter single addresses without a /32 suffix."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for ip in var.function_runtime_storage_allowed_ip_rules : !can(regex("/3[12]$", ip))])
+    error_message = "Storage firewall IP rules don't support /31 or /32 prefixes. Enter single addresses without a suffix."
+  }
+}
